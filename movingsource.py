@@ -10,7 +10,7 @@ class Covar:
     Convenience class for covariance matrix information.
 
     """
-    
+
     def __init__(self, read_times, integrated_counts=None):
 
         """
@@ -32,10 +32,10 @@ class Covar:
              counts in each resultant at each pixel for a moving source
              of unit flux.  If None, only compute the static illumination
              terms of the covariance matrix.  Default None
-             
+
         When initialized, compute the components of the (tridiagonal)
         covariance matrix.  These are:
-        
+
         alpha_phnoise: ndarray
             1D, length nreads - 1, diagonal components for the static scene
         beta_phnoise: ndarray
@@ -52,11 +52,11 @@ class Covar:
         beta_phnoise_path: ndarray
             2D, nreads - 2 by npixels, off-diagonal components for a moving
             object of unit flux
-        
+
         Note that alpha_phnoise_path and beta_phnoise_path both have an
         extra dimension over the other arrays, as they have different
         values for each pixel.
-        
+
         """
 
         mean_t = []   # mean time of the resultant as defined in the paper
@@ -65,12 +65,12 @@ class Covar:
         mean_t_path = []
         tau_path = []
         _N = []
-        
+
         N = []  # Number of reads per resultant
-        
+
         for times in read_times:
             mean_t += [np.mean(times)]
-            
+
             if hasattr(times, "__len__"):
                 N += [len(times)]
                 k = np.arange(1, N[-1] + 1)
@@ -135,7 +135,7 @@ def bin_to_resultants(fullarray, resultants, for_cov=False):
          Return a list for the covariance matrix calculation?  If
          False, return an array for the actual resultant values.
          Default False
-    
+
     Returns
     -------
     output : ndarray or list
@@ -143,7 +143,7 @@ def bin_to_resultants(fullarray, resultants, for_cov=False):
          is 2D where the first dimension is the number of reads
          comprising that resultant, or return a 2D array of values for
          the resultants computed from averaging the constituent reads.
-    
+
     """
 
     output = []
@@ -265,7 +265,7 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
     Add a smeared subimage, represented by a 2D spline, to an image.
 
     Operates on im in place, returns None.
-    
+
     Inputs
     ------
     im : ndarray
@@ -287,7 +287,7 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
     Returns
     -------
     None
-    
+
     """
 
     # Need to separate integer, fractional components of the offset
@@ -314,7 +314,7 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
     di = max(im.shape[0], subim.shape[0])
     dj = max(im.shape[1], subim.shape[1])
     k0, l0 = 0, 0
-    
+
     # Integer component handled by offsets in the inpainting.  Ensure
     # that we limit di (the size of the image to paint in) so that it
     # does not run off the end of either grid.
@@ -332,7 +332,7 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
         k0 = 0  
     if k0 + di > subim.shape[0]:
         di = subim.shape[0] - k0
-        
+
     if j0 < 0:
         dj += j0
         l0 -= j0
@@ -348,13 +348,13 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
         dj = subim.shape[1] - l0
 
     # Assuming that there is a valid region to add on
-    
+
     if dj > 0 and di > 0:
         im[i0:i0 + di, j0:j0 + dj] += subim[k0:k0 + di, l0:l0 + dj]
     else:
         warnings.warn("Attempting to add an image out of bounds")
 
-    
+
 def make_templates(
         epsf,
         phi,
@@ -370,7 +370,7 @@ def make_templates(
         saved_state=None,
         ipix=None
 ):
-    
+
     """
     Construct a template of a moving source through a series of resultants.
 
@@ -427,7 +427,7 @@ def make_templates(
         "ipix" : ndarray
             boolean array that is True for pixels where the cumsum
             array listed immediately above exceeds threshold
-    
+
     """
 
     # This block uses a structure to save the smeared ePSF and to use
@@ -452,7 +452,7 @@ def make_templates(
             dim_ddist = compute_smeared_image(epsf, saved_state.last_phi, (saved_state.last_dist + ddist)*oversample)
             dim_ddist = 1/ddist*(dim_ddist[oversample:-oversample, oversample:-oversample] - im_smeared)
             saved_state.dim_ddist = dim_ddist
-            
+
             dphi = 1e-3*saved_state.last_dist*oversample
             dim_dphi = compute_smeared_image(epsf, saved_state.last_phi + dphi, saved_state.last_dist*oversample)
             dim_dphi = 1/dphi*(dim_dphi[oversample:-oversample, oversample:-oversample] - im_smeared)
@@ -468,7 +468,7 @@ def make_templates(
 
         # Clip the image by one full pixel in all directions to avoid
         # artifacts from extrapolation.
-    
+
         im_smeared = im_smeared[oversample:-oversample, oversample:-oversample]
 
         if saved_state is not None:
@@ -490,7 +490,7 @@ def make_templates(
     for i in range(nreads):
         xpos, ypos = x0 + dist*i*np.sin(phi), y0 + dist*i*np.cos(phi)
         add_to_image(alltemplates[i], f2, im_smeared.shape, xpos, ypos, oversample=oversample)
-    
+
     alltemplates[alltemplates <= 0] = 0
     alltemplates = alltemplates.reshape((nreads, -1))
 
@@ -512,7 +512,7 @@ def make_templates(
         ipix_return = None
 
     templates_resultants = np.diff(bin_to_resultants(templates_cumsum, resultants), axis=0)
-        
+
     templates_resultants_cumsum = bin_to_resultants(templates_cumsum, resultants, for_cov=True)
 
     return {
@@ -550,7 +550,7 @@ def full_chisq(p,
                       dist, motion per read in pixels
                       x0, x position of the moving source at t=0
                       y0, y position of the moving source at t=0
-    
+
     diffs : ndarray
         Differences between consecutive reads, shape (nreads - 1, npixels).
     diffs2use : ndarray
@@ -584,7 +584,7 @@ def full_chisq(p,
         Default False
     movingsource : bool, optional
         If True, include a moving source in the fit.  Default True
-    
+
     Returns
     -------
     chisq_tot : float
@@ -605,9 +605,9 @@ def full_chisq(p,
         "chisq_best" : ndarray
             Chi squared for each pixel when fitting the full model with a
             moving source
-    
+
     """
-    
+
     _phi, _dist, _x0, _y0 = p
 
     if saved_state is not None and saved_state.chisq_matrix is None:
@@ -626,9 +626,9 @@ def full_chisq(p,
         ref_chisq = saved_state.chisq_matrix
     else:
         ref_chisq = None
-    
+
     compute_ipix = ref_chisq is not None
-    
+
     templates_dict = make_templates(epsf,
                                     _phi,
                                     _dist,
@@ -650,7 +650,7 @@ def full_chisq(p,
     templates_resultants_cumsum = templates_dict["templates_resultants_cumsum"]
 
     Cov = Covar(resultants, templates_resultants_cumsum)
-    
+
     if ref_chisq is not None:
         checkpix = np.zeros(diffs.shape, dtype=bool)
         checkpix[:] = ipix
@@ -665,14 +665,14 @@ def full_chisq(p,
 
     cguess = np.mean(res_diffs, axis=0)
     cguess[~(cguess > 0)] = 0
-    
+
     # Initial guess of zero for the moving source flux.
-    
+
     fluxguess = np.zeros(res_diffs[0].shape)
 
     # Two iterations: first without accounting for the contribution of
     # the moving source to the covariance, and then with that accounting.
-    
+
     for i_iter in range(2):
         result = fitramp_movingsource.fit_ramps(
             res_diffs, 
@@ -714,7 +714,7 @@ def full_chisq(p,
             best_flux_err = np.sqrt(1/C)
 
         # Update the guesses for the static count rate, moving object flux
-        
+
         cguess = (result["A_a"] - best_flux*result["A_ab"])/result["A_aa"]
         countrate_static = cguess.copy()
         cguess[~(cguess > 0)] = 0
@@ -722,7 +722,7 @@ def full_chisq(p,
 
         # The chi squared is the quadratic above with the best-fit moving
         # object flux plugged in
-        
+
         chisq_tot = best_flux**2*C + 2*best_flux*B + A
         if ipix is not None:
             chisq_tot += np.sum(ref_chisq[~ipix])
@@ -748,14 +748,14 @@ def full_chisq(p,
         return chisq_tot, results
     else:
         return chisq_tot
-    
-    
+
+
 class Chisq_SavedState:
 
     """
     Convenience class to avoid repeat computations in the chi2 optimization
     """
-    
+
     def __init__(self):
         self.last_phi = None
         self.last_dist = None
@@ -773,11 +773,11 @@ class MovingTrack:
     """
     Wrapper to generate and fit tracks of moving objects
     """
-    
+
     def __init__(self, readtimes, resultants, epsf, oversample, shape):
         """
         Initialize the MovingTrack object
-        
+
         Inputs
         ------
         readtimes : list
@@ -809,7 +809,7 @@ class MovingTrack:
 
         self.nreads = len(self.readtimes)
         self.nresultants = len(self.resultants)
-        
+
         self.reads_shape = tuple([self.nreads] + list(shape))
         self.resultants_shape = tuple([self.nresultants] + list(shape))
         self.resultants_diff_shape = tuple([self.nresultants - 1] + list(shape))
@@ -827,7 +827,7 @@ class MovingTrack:
         self.flux_err = None
         self.read_values = None
         self.resultant_values = None
-        
+
     def gen_track(self, params, flux=None, addnoise=False):
         """
         Generate a track of a moving object, both in reads and resultants
@@ -858,9 +858,9 @@ class MovingTrack:
             moving object track, cumulative counts in each read
         resultant_values : ndarray
             moving object track, cumulative counts in each resultant
-        
+
         """
-        
+
         phi, dist, x0, y0 = params
         res = make_templates(self.epsf,
                              phi,
@@ -876,7 +876,7 @@ class MovingTrack:
                              )
         self.templates_reads = res["alltemplates"].reshape(self.reads_shape)
         self.templates_resultants = res["templates_resultants"].reshape(self.resultants_diff_shape)
-        
+
         diffs = self.templates_reads[1:]*1.
         if flux is not None:
             diffs *= flux
@@ -885,11 +885,11 @@ class MovingTrack:
 
         if addnoise:
             diffs = np.random.poisson(diffs)
-            
+
         self.read_values = np.zeros(self.reads_shape)
         self.read_values[1:] = np.cumsum(diffs, axis=0)
         self.resultant_values = bin_to_resultants(self.read_values, self.resultants)
-        
+
     def fit_track(self, params_guess, scaled_diffs, diffs2use, sig_readnoise, method='Nelder-Mead'):
         """
         Fit the track of a moving object to an array of resultant differences
@@ -947,15 +947,15 @@ class MovingTrack:
             moving object best-fit track, cumulative counts in each read
         resultant_values : ndarray
             moving object best-fit track, cumulative counts in each resultant
-        
+
         """
 
         if not np.prod(self.flatdiffshape) == np.prod(scaled_diffs.shape):
             raise ValueError("Shape of resultant differences incompatible"
                              " with setup of MovingTrack")
-        
+
         savedstate = Chisq_SavedState()
-        
+
         res = optimize.minimize(full_chisq,
                                 params_guess, 
                                 args=(scaled_diffs.reshape(self.flatdiffshape),
