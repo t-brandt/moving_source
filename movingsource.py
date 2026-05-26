@@ -534,7 +534,8 @@ def full_chisq(p,
                outshape,
                saved_state=None,
                ipix_in=None,
-               return_ancillary=False
+               return_ancillary=False,
+               movingsource=True
                ):
 
     """
@@ -581,6 +582,8 @@ def full_chisq(p,
     return_ancillary : bool, optional
         If True, return a dictionary with ancillary information.
         Default False
+    movingsource : bool, optional
+        If True, include a moving source in the fit.  Default True
     
     Returns
     -------
@@ -608,9 +611,16 @@ def full_chisq(p,
     _phi, _dist, _x0, _y0 = p
 
     if saved_state is not None and saved_state.chisq_matrix is None:
-        result = get_chisq_static(diffs, diffs2use, sig, resultants)
-        saved_state.chisq_matrix = result["chisq_matrix"]
-        saved_state.countrate_nomovingsource = result["countrate"].reshape(outshape)
+
+        # If this is the first time through the routine, compute the chi
+        # squared and count rate with no moving source.
+
+        _, result = full_chisq(p, diffs, diffs2use, epsf*0, sig, readtimes,
+                               resultants, oversample, outshape,
+                               return_ancillary=True, movingsource=False)
+
+        saved_state.chisq_matrix = result["chisq_best"].flatten()
+        saved_state.countrate_nomovingsource = result["best_static_countrate"].reshape(outshape)
 
     if saved_state is not None and saved_state.chisq_matrix is not None:
         ref_chisq = saved_state.chisq_matrix
@@ -682,7 +692,8 @@ def full_chisq(p,
         )
 
         # Coefficients of the quadratic for the moving source count rate
-        # at each pixel's best-fit static count rate
+        # at each pixel's best-fit static count rate.  Note that A_a and
+        # A_b have opposite signs from the writeup (arxiv:xxxx)
 
         A_arr = result["A_0"] - result["A_a"]**2/result["A_aa"]
         B_arr = result["A_a"]*result["A_ab"]/result["A_aa"] - result["A_b"]
@@ -692,8 +703,15 @@ def full_chisq(p,
         B = np.sum(B_arr)
         C = np.sum(C_arr)
 
-        best_flux = -B/C
-        best_flux_err = np.sqrt(1/C)
+        # Ensure that we meant to fit a moving source and that we have
+        # a nonzero value to divide by
+
+        if C == 0 or not movingsource:
+            best_flux = 0
+            best_flux_err = np.inf
+        else:
+            best_flux = -B/C
+            best_flux_err = np.sqrt(1/C)
 
         # Update the guesses for the static count rate, moving object flux
         
@@ -731,76 +749,6 @@ def full_chisq(p,
     else:
         return chisq_tot
     
-
-def get_chisq_static(diffs, diffs2use, sig, resultants):
-
-    """
-    Compute per-pixel chi squared without a moving source
-
-    Inputs
-    ------
-    diffs : ndarray
-        Scaled differences between consecutive resultants; the scaling is
-        the inverse of the difference in mean read time.
-        Shape (nresultants - 1, npixels).
-    diffs2use : ndarray
-        Boolean array of the same shape as diffs indicating which resultant
-        differences should be used in the fit
-    sig : ndarray
-        ndarray of read noise.  Should be of total size npixels.
-    resultants : list
-        List of values or lists for the indices of reads.  If a list of
-        lists, indices for reads that are averaged together to produce
-        a resultant.
-
-    Returns
-    -------
-    results : dict
-        Dictionary with chi squared and count rate.  Keys/values are:
-
-        "chisq_matrix" : ndarray
-            Chi squared for each pixel when fitting only a static count
-            rate (i.e. no moving source)
-        "countrate" : ndarray
-            Best-fit count rate for each pixel without fitting a moving
-            source in counts/read
-    
-    """
-    
-    ndiffs, npix = diffs.shape
-    
-    # Covariance matrix with zeros for the extra source term
-    Cov = Covar(resultants, [np.zeros((len(r), npix)) for r in resultants])
-    
-    cguess = np.mean(diffs, axis=0)
-    cguess[~(cguess > 0)] = 0
-
-    # Zero flux for the extra source
-    fluxguess = np.zeros(npix)
-    
-    for i_iter in range(2):
-        result = fitramp_movingsource.fit_ramps(
-            diffs, 
-            diffs2use,
-            np.zeros((ndiffs, npix)),
-            Cov.alpha_phnoise,
-            Cov.beta_phnoise,
-            Cov.alpha_readnoise,
-            Cov.beta_readnoise,
-            Cov.alpha_phnoise_path,
-            Cov.beta_phnoise_path,
-            sig.flatten(),
-            cguess,
-            fluxguess,
-            npix,
-            ndiffs
-        )
-        cguess = result["A_a"]/result["A_aa"]
-        countrate = cguess.copy()
-        cguess[~(cguess > 0)] = 0
-
-    return {"chisq_matrix" : result["chisq"], "countrate" : countrate}
-
     
 class Chisq_SavedState:
 
