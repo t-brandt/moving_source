@@ -27,25 +27,31 @@ class Covar:
              List of values or lists for the times of reads.  If a list of
              lists, times for reads that are averaged together to produce
              a resultant.
-        integrated_counts : list of ndarrays or None
+        integrated_counts : list of ndarrays or None, optional
              Each ndarray is of dimension n_reads x npixels.  Expected
              counts in each resultant at each pixel for a moving source
              of unit flux.  If None, only compute the static illumination
-             terms of the covariance matrix.
+             terms of the covariance matrix.  Default None
              
-        Computes the components of the (tridiagonal) covariance matrix.
-        These are:
+        When initialized, compute the components of the (tridiagonal)
+        covariance matrix.  These are:
         
-        alpha_phnoise: diagonal components for the static scene
-        beta_phnoise: off-diagonal components for the static scene
-        alpha_readnoise: diagonal components for the read noise
-        beta_readnoise: off-diagonal components for the read noise
+        alpha_phnoise: ndarray
+            1D, length nreads - 1, diagonal components for the static scene
+        beta_phnoise: ndarray
+            1D, length nreads - 2, off-diagonal components for the static scene
+        alpha_readnoise: ndarray
+            1D, length nreads - 1, diagonal components for the read noise
+        beta_readnoise: ndarray
+            1D, length nreads - 2, off-diagonal components for the read noise
 
         Also computed if integrated_counts is not None:
-        alpha_phnoise_path: diagonal components for a moving object of
-            unit flux
-        beta_phnoise_path: off-diagonal components for a moving object of
-            unit flux
+        alpha_phnoise_path: ndarray
+            2D, nreads - 1 by npixels, diagonal components for a moving
+            object of unit flux
+        beta_phnoise_path: ndarray
+            2D, nreads - 2 by npixels, off-diagonal components for a moving
+            object of unit flux
         
         Note that alpha_phnoise_path and beta_phnoise_path both have an
         extra dimension over the other arrays, as they have different
@@ -74,11 +80,14 @@ class Covar:
                 N += [1]
 
         if integrated_counts is not None:
+
             # This is treated the same as photon noise for a static scene,
-            # but 
+            # but with pixel dependence from the spatial and temporal
+            # structure of the moving source.
+
             for counts in integrated_counts:
                 mean_t_path += [np.mean(counts, axis=0)]
-                
+
                 if hasattr(counts, "__len__"):
                     Ncts = len(counts)
                     k = np.arange(1, Ncts + 1)[:, None]
@@ -90,23 +99,23 @@ class Covar:
         mean_t = np.array(mean_t)
         tau = np.array(tau)
         N = np.array(N)
-        
+
         delta_t = mean_t[1:] - mean_t[:-1]
 
         self.delta_t = delta_t
         self.mean_t = mean_t
         self.tau = tau
         self.Nreads = N
-        
+
         self.alpha_readnoise = (1/N[:-1] + 1/N[1:])/delta_t**2
         self.beta_readnoise = -1/N[1:-1]/(delta_t[1:]*delta_t[:-1])
-        
+
         self.alpha_phnoise = (tau[:-1] + tau[1:] - 2*mean_t[:-1])/delta_t**2
         self.beta_phnoise = (mean_t[1:-1] - tau[1:-1])/(delta_t[1:]*delta_t[:-1])
         if integrated_counts is not None:
             mean_t_path = np.array(mean_t_path)
             tau_path = np.array(tau_path)
-        
+
             self.alpha_phnoise_path = (tau_path[:-1] + tau_path[1:] - 2*mean_t_path[:-1])/delta_t[:, None]**2
             self.beta_phnoise_path = (mean_t_path[1:-1] - tau_path[1:-1])/(delta_t[1:]*delta_t[:-1])[:, None]
 
@@ -272,8 +281,8 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
          The x position (in pixels) at which to add the smeared subimage
     ypos : float
          The y position (in pixels) at which to add the smeared subimage
-    oversample : int
-         The factor by which pixels in f oversample pixels in im.
+    oversample : int, optional
+         The factor by which pixels in f oversample pixels in im.  Default 1
 
     Returns
     -------
@@ -394,19 +403,20 @@ def make_templates(
         from the moving source?  Default False
     threshold : float, Optional
         Fraction of peak pixel value to serve as the cutoff for keeping
-        pixels.  Used only if bigpix is True.  Default 1e-4.
+        pixels.  Used only if bigpix is True.  Default 1e-4
     saved_state : PSF_interp_tool or None, optional
         Stores and updates the machinery to use a Taylor expansion to
         make a small change to the smeared ePSF.  Improves performance
         while this routine is optimized with many small steps.
+        Default None
     ipix : ndarray or None, optional
         Boolean array for which indices are actually computed with a
-        full chi squared calculation
+        full chi squared calculation.  Default None
 
     Returns
     -------
     results : dict
-        Dictionary with the following keys:
+        Dictionary with the following keys/values:
 
         "alltemplates" : ndarray
             integrated counts from a moving source read-by-read
@@ -564,9 +574,10 @@ def full_chisq(p,
         Stores and updates the machinery to use a Taylor expansion to
         make a small change to the smeared ePSF.  Improves performance
         while this routine is optimized with many small steps.
+        Default None
     ipix_in : ndarray or None, optional
         Boolean array for which indices are actually computed with a
-        full chi squared calculation
+        full chi squared calculation.  Default None
     return_ancillary : bool, optional
         If True, return a dictionary with ancillary information.
         Default False
@@ -578,10 +589,20 @@ def full_chisq(p,
         a moving object template defined by the input parameters.  Returned
         if return_flux, return_template, and return_chi2array are all False
     results : dict, optional
-        Dictionary with the best flux, its standard error, the templates
-        for the moving source, and the per pixel chi squared values.  Only
-        returned if return_ancillary is True.
-        
+        Dictionary with various bits of information, only returned if
+        return_ancillary is True.  Keys/values are:
+
+        "best_flux" : float
+            Best-fit flux of the moving object in counts/read.
+        "best_flux_err" : float
+            Standard error in flux
+        "best_static_countrate" : ndarray
+            Best-fit static count rate for each pixel in counts/read when
+            fitting a moving source
+        "chisq_best" : ndarray
+            Chi squared for each pixel when fitting the full model with a
+            moving source
+    
     """
     
     _phi, _dist, _x0, _y0 = p
@@ -704,10 +725,7 @@ def full_chisq(p,
         results = {"best_flux" : best_flux,
                    "best_flux_err" : best_flux_err,
                    "best_static_countrate" : countrate_static.reshape(outshape),
-                   "chisq_value" : chisq_return.reshape(outshape),
-                   "alltemplates" : alltemplates,
-                   "templates_resultants" : templates_resultants,
-                   "templates_resultants_cumsum" : templates_resultants_cumsum
+                   "chisq_best" : chisq_return.reshape(outshape)
                    }
         return chisq_tot, results
     else:
@@ -738,9 +756,14 @@ def get_chisq_static(diffs, diffs2use, sig, resultants):
     Returns
     -------
     results : dict
-        Contains an ndarray for the per-pixel chi squared matrix without a
-        moving source, "chisq_matrix", and a second ndarray for the count
-        rate for each pixel, again without a moving source, "countrate"
+        Dictionary with chi squared and count rate.  Keys/values are:
+
+        "chisq_matrix" : ndarray
+            Chi squared for each pixel when fitting only a static count
+            rate (i.e. no moving source)
+        "countrate" : ndarray
+            Best-fit count rate for each pixel without fitting a moving
+            source in counts/read
     
     """
     
@@ -879,13 +902,13 @@ class MovingTrack:
 
         This routine assigns values to the following attributes:
 
-        self.templates_reads : ndarray
+        templates_reads : ndarray
             moving object template, counts in each read difference
-        self.templates_resultants : ndarray
+        templates_resultants : ndarray
             moving object template, counts in each resultant difference
-        self.read_values : ndarray
+        read_values : ndarray
             moving object track, cumulative counts in each read
-        self.resultant_values : ndarray
+        resultant_values : ndarray
             moving object track, cumulative counts in each resultant
         
         """
@@ -948,33 +971,33 @@ class MovingTrack:
         None
 
         This routine assigns values to the following attributes:
-        self.params : list
+        params : list
             The best-fit nonlinear parameters of the moving object:
             phi [angle], dist [distance moved, pix/read],
             x0 [pixel position at t=0], y0 [pixel position at t=0]
-        self.flux : float
+        flux : float
             Best-fit flux of the moving object in counts/read.
-        self.flux_err : float
-            Standard error in self.flux
-        self.countrate_nomovingsource : ndarray
+        flux_err : float
+            Standard error in flux
+        countrate_nomovingsource : ndarray
             Best-fit count rate for each pixel without fitting a moving
             source in counts/read
-        self.countrate_nomovingsource : ndarray
+        static_countrate : ndarray
             Best-fit static count rate for each pixel in counts/read when
             fitting a moving source
-        self.chisq_static : ndarray
+        chisq_static : ndarray
             Chi squared for each pixel when fitting only a static count
             rate (i.e. no moving source)
-        self.chisq_best : ndarray
+        chisq_best : ndarray
             Chi squared for each pixel when fitting the full model with a
             moving source
-        self.templates_reads : ndarray
+        templates_reads : ndarray
             moving object template, counts/flux in each read difference
-        self.templates_resultants : ndarray
+        templates_resultants : ndarray
             moving object template, counts/flux in each resultant difference
-        self.read_values : ndarray
+        read_values : ndarray
             moving object best-fit track, cumulative counts in each read
-        self.resultant_values : ndarray
+        resultant_values : ndarray
             moving object best-fit track, cumulative counts in each resultant
         
         """
@@ -1015,6 +1038,6 @@ class MovingTrack:
         self.flux_err = ancillary["best_flux_err"]
         self.static_countrate = ancillary["best_static_countrate"]
         self.chisq_static = savedstate.chisq_matrix.reshape(self.shape)
-        self.chisq_best = ancillary["chisq_value"]
+        self.chisq_best = ancillary["chisq_best"]
 
         self.gen_track(self.params)
