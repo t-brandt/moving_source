@@ -343,7 +343,7 @@ def add_to_image(im, f, fshape, xpos, ypos, oversample=1):
     if dj > 0 and di > 0:
         im[i0:i0 + di, j0:j0 + dj] += subim[k0:k0 + di, l0:l0 + dj]
     else:
-        raise ValueError("Attempting to add an image out of bounds")
+        warnings.warn("Attempting to add an image out of bounds")
 
     
 def make_templates(
@@ -358,7 +358,7 @@ def make_templates(
         outshape,
         bigpix=False,
         threshold=1e-4,
-        psf_saver=None,
+        saved_state=None,
         ipix=None
 ):
     
@@ -395,7 +395,7 @@ def make_templates(
     threshold : float, Optional
         Fraction of peak pixel value to serve as the cutoff for keeping
         pixels.  Used only if bigpix is True.  Default 1e-4.
-    psf_saver : PSF_interp_tool or None, optional
+    saved_state : PSF_interp_tool or None, optional
         Stores and updates the machinery to use a Taylor expansion to
         make a small change to the smeared ePSF.  Improves performance
         while this routine is optimized with many small steps.
@@ -427,29 +427,29 @@ def make_templates(
     # this, compute a full new smeared ePSF and recompute the derivatives.
 
     if (
-            psf_saver is not None and
-            psf_saver.last_phi is not None and
-            psf_saver.last_dist is not None and
-            np.abs(psf_saver.last_phi - phi) < 5e-2/(dist*oversample) and
-            np.abs(psf_saver.last_dist - dist) < 5e-2/oversample and
-            psf_saver.last_smeared_epsf is not None
+            saved_state is not None and
+            saved_state.last_phi is not None and
+            saved_state.last_dist is not None and
+            np.abs(saved_state.last_phi - phi) < 5e-2/(dist*oversample) and
+            np.abs(saved_state.last_dist - dist) < 5e-2/oversample and
+            saved_state.last_smeared_epsf is not None
             ):
 
-        im_smeared = psf_saver.last_smeared_epsf.copy()
+        im_smeared = saved_state.last_smeared_epsf.copy()
 
-        if psf_saver.dim_dphi is None or psf_saver.dim_ddist is None:
+        if saved_state.dim_dphi is None or saved_state.dim_ddist is None:
             ddist = 1e-3/oversample
-            dim_ddist = compute_smeared_image(epsf, psf_saver.last_phi, (psf_saver.last_dist + ddist)*oversample)
+            dim_ddist = compute_smeared_image(epsf, saved_state.last_phi, (saved_state.last_dist + ddist)*oversample)
             dim_ddist = 1/ddist*(dim_ddist[oversample:-oversample, oversample:-oversample] - im_smeared)
-            psf_saver.dim_ddist = dim_ddist
+            saved_state.dim_ddist = dim_ddist
             
-            dphi = 1e-3*psf_saver.last_dist*oversample
-            dim_dphi = compute_smeared_image(epsf, psf_saver.last_phi + dphi, psf_saver.last_dist*oversample)
+            dphi = 1e-3*saved_state.last_dist*oversample
+            dim_dphi = compute_smeared_image(epsf, saved_state.last_phi + dphi, saved_state.last_dist*oversample)
             dim_dphi = 1/dphi*(dim_dphi[oversample:-oversample, oversample:-oversample] - im_smeared)
-            psf_saver.dim_dphi = dim_dphi
+            saved_state.dim_dphi = dim_dphi
 
-        im_smeared += (phi - psf_saver.last_phi)*psf_saver.dim_dphi
-        im_smeared += (dist - psf_saver.last_dist)*psf_saver.dim_ddist
+        im_smeared += (phi - saved_state.last_phi)*saved_state.dim_dphi
+        im_smeared += (dist - saved_state.last_dist)*saved_state.dim_ddist
     else:
 
         # Recompute the smeared ePSF
@@ -461,12 +461,12 @@ def make_templates(
     
         im_smeared = im_smeared[oversample:-oversample, oversample:-oversample]
 
-        if psf_saver is not None:
-            psf_saver.last_phi = phi
-            psf_saver.last_dist = dist
-            psf_saver.last_smeared_epsf = im_smeared
-            psf_saver.dim_dphi = None
-            psf_saver.dim_ddist = None
+        if saved_state is not None:
+            saved_state.last_phi = phi
+            saved_state.last_dist = dist
+            saved_state.last_smeared_epsf = im_smeared
+            saved_state.dim_dphi = None
+            saved_state.dim_ddist = None
 
     # Represent the smeared ePSF as a spline so that it can be
     # interpolated.
@@ -522,7 +522,7 @@ def full_chisq(p,
                resultants,
                oversample,
                outshape,
-               psf_saver=None,
+               saved_state=None,
                ipix_in=None,
                return_ancillary=False
                ):
@@ -560,7 +560,7 @@ def full_chisq(p,
         Factor by which epsf oversamples the output image
     outshape : tuple
         Shape of the output array in which to draw the moving source
-    psf_saver : Chisq_SavedState
+    saved_state : Chisq_SavedState
         Stores and updates the machinery to use a Taylor expansion to
         make a small change to the smeared ePSF.  Improves performance
         while this routine is optimized with many small steps.
@@ -586,12 +586,13 @@ def full_chisq(p,
     
     _phi, _dist, _x0, _y0 = p
 
-    if psf_saver is not None and psf_saver.chisq_matrix is None:
-        psf_saver.chisq_matrix = get_chisq_static(
-            diffs, diffs2use, sig, resultants)
+    if saved_state is not None and saved_state.chisq_matrix is None:
+        result = get_chisq_static(diffs, diffs2use, sig, resultants)
+        saved_state.chisq_matrix = result["chisq_matrix"]
+        saved_state.countrate_nomovingsource = result["countrate"].reshape(outshape)
 
-    if psf_saver is not None and psf_saver.chisq_matrix is not None:
-        ref_chisq = psf_saver.chisq_matrix
+    if saved_state is not None and saved_state.chisq_matrix is not None:
+        ref_chisq = saved_state.chisq_matrix
     else:
         ref_chisq = None
     
@@ -608,7 +609,7 @@ def full_chisq(p,
                                     outshape,
                                     bigpix=compute_ipix,
                                     threshold=1e-4,
-                                    psf_saver=psf_saver,
+                                    saved_state=saved_state,
                                     ipix=ipix_in
                                     )
 
@@ -658,26 +659,52 @@ def full_chisq(p,
             res_diffs.shape[1],
             res_diffs.shape[0]
         )
-        best_flux = np.sum(result["countrate_sec"]/result["uncert_sec"]**2)/np.sum(1/result["uncert_sec"]**2)
-        best_flux_err = np.sqrt(1/np.sum(1/result["uncert_sec"]**2))
+
+        # Coefficients of the quadratic for the moving source count rate
+        # at each pixel's best-fit static count rate
+
+        A_arr = result["A_0"] - result["A_a"]**2/result["A_aa"]
+        B_arr = result["A_a"]*result["A_ab"]/result["A_aa"] - result["A_b"]
+        C_arr = result["A_bb"] - result["A_ab"]**2/result["A_aa"]
+
+        A = np.sum(A_arr)
+        B = np.sum(B_arr)
+        C = np.sum(C_arr)
+
+        best_flux = -B/C
+        best_flux_err = np.sqrt(1/C)
 
         # Update the guesses for the static count rate, moving object flux
         
         cguess = (result["A_a"] - best_flux*result["A_ab"])/result["A_aa"]
+        countrate_static = cguess.copy()
         cguess[~(cguess > 0)] = 0
         fluxguess = np.ones(res_diffs[0].shape)*best_flux
 
-        # The chi squared is the best chi squared plus the deviations of
-        # the pixels from the predicted flux plus the pixels with little
-        # contribution from a moving source that were not fitted directly.
+        # The chi squared is the quadratic above with the best-fit moving
+        # object flux plugged in
         
-        chisq_tot = np.sum(result["chisq"]) + np.sum((result["countrate_sec"] - best_flux)**2/result["uncert_sec"]**2)
+        chisq_tot = best_flux**2*C + 2*best_flux*B + A
         if ipix is not None:
             chisq_tot += np.sum(ref_chisq[~ipix])
 
     if return_ancillary:
+
+        # Populate the chi squared array with the static value, then
+        # overwrite any that are calculated here with an appreciable
+        # contribution from the moving object track.
+
+        if ref_chisq is not None:
+            chisq_return = ref_chisq.copy()
+        else:
+            chisq_return = result["chisq"].copy()
+
+        chisq_return[ipix] = best_flux**2*C_arr + 2*best_flux*B_arr + A_arr
+
         results = {"best_flux" : best_flux,
                    "best_flux_err" : best_flux_err,
+                   "best_static_countrate" : countrate_static.reshape(outshape),
+                   "chisq_value" : chisq_return.reshape(outshape),
                    "alltemplates" : alltemplates,
                    "templates_resultants" : templates_resultants,
                    "templates_resultants_cumsum" : templates_resultants_cumsum
@@ -710,8 +737,10 @@ def get_chisq_static(diffs, diffs2use, sig, resultants):
 
     Returns
     -------
-    chisq : ndarray
-        Chi squared value for each pixel without a moving source
+    results : dict
+        Contains an ndarray for the per-pixel chi squared matrix without a
+        moving source, "chisq_matrix", and a second ndarray for the count
+        rate for each pixel, again without a moving source, "countrate"
     
     """
     
@@ -744,9 +773,10 @@ def get_chisq_static(diffs, diffs2use, sig, resultants):
             ndiffs
         )
         cguess = result["A_a"]/result["A_aa"]
+        countrate = cguess.copy()
         cguess[~(cguess > 0)] = 0
 
-    return result["chisq"]
+    return {"chisq_matrix" : result["chisq"], "countrate" : countrate}
 
     
 class Chisq_SavedState:
@@ -764,6 +794,7 @@ class Chisq_SavedState:
         self.dim_ddist = None
 
         self.chisq_matrix = None
+        self.countrate_nomovingsource = None
 
 
 class MovingTrack:
@@ -816,6 +847,11 @@ class MovingTrack:
         self.alltemplates = None
         self.templates_resultants = None
 
+        self.static_countrate = None
+        self.countrate_nomovingsource = None
+        self.chisq_static = None
+        self.chisq_best = None
+
         self.flux = None
         self.flux_err = None
         self.read_values = None
@@ -829,10 +865,10 @@ class MovingTrack:
         -------
         params : list
             List of the nonlinear parameters of the moving object:
-            phi [angle], dist [distance moved, pix/s],
+            phi [angle], dist [distance moved, pix/read],
             x0 [pixel position at t=0], y0 [pixel position at t=0]
         flux : float or None, optional
-            Flux in counts/s of the moving object.  If None, fall back on
+            Flux in counts/read of the moving object.  If None, fall back on
             self.flux if that is not None.  If both are None, use 1.
         addnoise : bool, optional
             Add photon noise to the moving object's track?  Default False.
@@ -891,7 +927,7 @@ class MovingTrack:
         -------
         params_guess : list
             Starting guess for the nonlinear parameters of the moving object:
-            phi [angle], dist [distance moved, pix/s],
+            phi [angle], dist [distance moved, pix/read],
             x0 [pixel position at t=0], y0 [pixel position at t=0]
         scaled_diffs : ndarray
             Scaled differences between consecutive resultants; the scaling is
@@ -914,12 +950,24 @@ class MovingTrack:
         This routine assigns values to the following attributes:
         self.params : list
             The best-fit nonlinear parameters of the moving object:
-            phi [angle], dist [distance moved, pix/s],
+            phi [angle], dist [distance moved, pix/read],
             x0 [pixel position at t=0], y0 [pixel position at t=0]
         self.flux : float
-            Best-fit flux of the moving object in counts/s.
+            Best-fit flux of the moving object in counts/read.
         self.flux_err : float
             Standard error in self.flux
+        self.countrate_nomovingsource : ndarray
+            Best-fit count rate for each pixel without fitting a moving
+            source in counts/read
+        self.countrate_nomovingsource : ndarray
+            Best-fit static count rate for each pixel in counts/read when
+            fitting a moving source
+        self.chisq_static : ndarray
+            Chi squared for each pixel when fitting only a static count
+            rate (i.e. no moving source)
+        self.chisq_best : ndarray
+            Chi squared for each pixel when fitting the full model with a
+            moving source
         self.templates_reads : ndarray
             moving object template, counts/flux in each read difference
         self.templates_resultants : ndarray
@@ -951,6 +999,7 @@ class MovingTrack:
                                 method=method)
 
         self.params = res.x
+        self.countrate_nomovingsource = savedstate.countrate_nomovingsource
         _, ancillary = full_chisq(self.params,
                                   scaled_diffs.reshape(self.flatdiffshape),
                                   diffs2use.reshape(self.flatdiffshape),
@@ -964,5 +1013,8 @@ class MovingTrack:
                                   )
         self.flux = ancillary["best_flux"]
         self.flux_err = ancillary["best_flux_err"]
+        self.static_countrate = ancillary["best_static_countrate"]
+        self.chisq_static = savedstate.chisq_matrix.reshape(self.shape)
+        self.chisq_best = ancillary["chisq_value"]
 
         self.gen_track(self.params)
