@@ -367,6 +367,7 @@ def make_templates(
         outshape,
         bigpix=False,
         threshold=1e-4,
+        max_dx_taylor=5e-2,
         saved_state=None,
         ipix=None
 ):
@@ -404,6 +405,10 @@ def make_templates(
     threshold : float, Optional
         Fraction of peak pixel value to serve as the cutoff for keeping
         pixels.  Used only if bigpix is True.  Default 1e-4
+    max_dx_taylor : float, optional
+        Maximum fraction of a pixel resulting from a change in velocity
+        relative to the last iteration to use a first-order Taylor
+        expansion for the ePSF.  Default 5e-2
     saved_state : PSF_interp_tool or None, optional
         Stores and updates the machinery to use a Taylor expansion to
         make a small change to the smeared ePSF.  Improves performance
@@ -533,6 +538,8 @@ def full_chisq(p,
                oversample,
                outshape,
                saved_state=None,
+               threshold=1e-4,
+               max_dx_taylor=5e-2,
                ipix_in=None,
                return_ancillary=False,
                movingsource=True
@@ -576,6 +583,13 @@ def full_chisq(p,
         make a small change to the smeared ePSF.  Improves performance
         while this routine is optimized with many small steps.
         Default None
+    threshold : float, optional
+        Fraction of peak pixel value to serve as the cutoff for keeping
+        pixels.  Used only if bigpix is True.  Default 1e-4
+    max_dx_taylor : float, optional
+        Maximum fraction of a pixel resulting from a change in velocity
+        relative to the last iteration to use a first-order Taylor
+        expansion for the ePSF.  Default 5e-2
     ipix_in : ndarray or None, optional
         Boolean array for which indices are actually computed with a
         full chi squared calculation.  Default None
@@ -639,7 +653,8 @@ def full_chisq(p,
                                     oversample,
                                     outshape,
                                     bigpix=compute_ipix,
-                                    threshold=1e-4,
+                                    threshold=threshold,
+                                    max_dx_taylor=max_dx_taylor,
                                     saved_state=saved_state,
                                     ipix=ipix_in
                                     )
@@ -890,7 +905,15 @@ class MovingTrack:
         self.read_values[1:] = np.cumsum(diffs, axis=0)
         self.resultant_values = bin_to_resultants(self.read_values, self.resultants)
 
-    def fit_track(self, params_guess, scaled_diffs, diffs2use, sig_readnoise, method='Nelder-Mead'):
+    def fit_track(self,
+                  params_guess,
+                  scaled_diffs,
+                  diffs2use,
+                  sig_readnoise,
+                  method='Nelder-Mead',
+                  threshold=1e-4,
+                  max_dx_taylor=5e-2
+                  ):
         """
         Fit the track of a moving object to an array of resultant differences
 
@@ -913,6 +936,13 @@ class MovingTrack:
         method : str, optional
             method to be passed to scipy.optimize.minimize.  Default
             'Nelder-Mead'.
+        threshold : float, Optional
+            Fraction of peak pixel value to serve as the cutoff for keeping
+            pixels.  Used only if bigpix is True.  Default 1e-4
+        max_dx_taylor : float, optional
+            Maximum fraction of a pixel resulting from a change in velocity
+            relative to the last iteration to use a first-order Taylor
+            expansion for the ePSF.  Default 5e-2
 
         Returns:
         --------
@@ -966,7 +996,9 @@ class MovingTrack:
                                       self.resultants,
                                       self.oversample,
                                       self.shape,
-                                      savedstate),
+                                      savedstate,
+                                      threshold,
+                                      max_dx_taylor),
                                 method=method)
 
         self.params = res.x
